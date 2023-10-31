@@ -207,7 +207,7 @@ class MetaPaperReviewDataset:
 
         return paper_id, paper_meta, reviews
 
-    def _setup(self, hold_in_memory, preload, version, paper_format):
+    def _setup(self, hold_in_memory, preload, version):
         paper_dirs = map(
             lambda x: MetaPaperReviewDataset._get_version_dir(x, version),
             list_dirs(self.datapath),
