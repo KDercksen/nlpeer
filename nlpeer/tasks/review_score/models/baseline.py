@@ -4,11 +4,11 @@ from collections import Counter
 from typing import Any
 
 import numpy as np
+import pytorch_lightning as pl
 import torch
 import wandb
-import pytorch_lightning as pl
 
-from nlpeer import DATASETS, DATASET_REVIEW_OVERALL_SCALES
+from nlpeer import DATASET_REVIEW_OVERALL_SCALES, DATASETS
 from nlpeer.tasks.review_score.data import load_dataset_splits
 
 
@@ -19,8 +19,12 @@ class LitBaselineModule(pl.LightningModule):
         self.default_score = score
 
     def forward(self, inputs) -> Any:
-        return {"predictions": torch.tensor([self.default_score for i in range(inputs["labels"].shape[0])]),
-                "labels": inputs["labels"]}
+        return {
+            "predictions": torch.tensor(
+                [self.default_score for i in range(inputs["labels"].shape[0])]
+            ),
+            "labels": inputs["labels"],
+        }
 
     def predict_step(self, batch, batch_idx: int, dataloader_idx: int = None):
         return self(batch)
@@ -36,8 +40,9 @@ class LitBaselineModule(pl.LightningModule):
 
 
 def from_config(config):
-    assert config["model"]["type"].startswith("baseline"),\
-        "Loading config for a baseline model, but passed a non-baseline config!"
+    assert config["model"]["type"].startswith(
+        "baseline"
+    ), "Loading config for a baseline model, but passed a non-baseline config!"
 
     # module
     model_params = config["model"]
@@ -58,12 +63,14 @@ def from_config(config):
 
 
 def compute_baselines(config):
-    train, dev, _ = load_dataset_splits(config["dataset"]["benchmark_path"],
-                                               config["dataset"]["paper_version"],
-                                               config["dataset"]["type"],
-                                               None,
-                                               None,
-                                               None)
+    train, dev, _ = load_dataset_splits(
+        config["dataset"]["benchmark_path"],
+        config["dataset"]["paper_version"],
+        config["dataset"]["type"],
+        None,
+        None,
+        None,
+    )
 
     rev_scores = [train[i][1] for i in range(len(train))]
     rev_scores += [dev[i][1] for i in range(len(dev))]
@@ -81,7 +88,7 @@ def compute_baselines(config):
     return {
         "average_score": avg_score,
         "average_rounded_score": avg_rounded_score,
-        "majority_score": maj_score
+        "majority_score": maj_score,
     }
 
 
@@ -94,35 +101,59 @@ def main(args):
     with wandb.init(project=args.project):
         for d in datasets:
             config = {
-                "dataset":{
+                "dataset": {
                     "benchmark_path": args.benchmark_dir,
                     "paper_version": args.paper_version,
-                    "type": d
+                    "type": d,
                 }
             }
 
             baselines = compute_baselines(config)
-            tbl = wandb.Table(data=[[k, v] for k,v in baselines.items()], columns=["type", "value"])
+            tbl = wandb.Table(
+                data=[[k, v] for k, v in baselines.items()], columns=["type", "value"]
+            )
             wandb.log({f"baseline_{d.name}": tbl})
 
             for k, v in baselines.items():
                 if not os.path.exists(os.path.join(args.out_dir, d.name)):
                     os.mkdir(os.path.join(args.out_dir, d.name))
 
-                if not os.path.exists(os.path.join(args.out_dir, d.name, f"baseline_{k}")):
+                if not os.path.exists(
+                    os.path.join(args.out_dir, d.name, f"baseline_{k}")
+                ):
                     os.mkdir(os.path.join(args.out_dir, d.name, f"baseline_{k}"))
 
-                with open(os.path.join(args.out_dir, d.name, f"baseline_{k}", "score.txt"), "w+") as f:
+                with open(
+                    os.path.join(args.out_dir, d.name, f"baseline_{k}", "score.txt"),
+                    "w+",
+                ) as f:
                     f.write(str(v))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--benchmark_dir", required=True, type=str, help="Path to the benchmark dir")
-    parser.add_argument("--out_dir", required=True, type=str, help="Path to store output")
-    parser.add_argument("--project", required=True, type=str, help="Project associated with the sweep")
-    parser.add_argument("--dataset", required=True, choices=[d.name for d in DATASETS] + ["ALL"], help="Name of the dataset")
-    parser.add_argument("--paper_version", required=False, default=1, type=int, help="Version of the paper")
+    parser.add_argument(
+        "--benchmark_dir", required=True, type=str, help="Path to the benchmark dir"
+    )
+    parser.add_argument(
+        "--out_dir", required=True, type=str, help="Path to store output"
+    )
+    parser.add_argument(
+        "--project", required=True, type=str, help="Project associated with the sweep"
+    )
+    parser.add_argument(
+        "--dataset",
+        required=True,
+        choices=[d.name for d in DATASETS] + ["ALL"],
+        help="Name of the dataset",
+    )
+    parser.add_argument(
+        "--paper_version",
+        required=False,
+        default=1,
+        type=int,
+        help="Version of the paper",
+    )
 
     args = parser.parse_args()
     main(args)

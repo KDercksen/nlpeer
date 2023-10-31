@@ -5,9 +5,9 @@ import shutil
 from os.path import join as pjoin
 
 import spacy
-from spacy import Language
-from spacy.symbols import  ORTH
 from intertext_graph.itsentsplitter import SpacySplitter
+from spacy import Language
+from spacy.symbols import ORTH
 
 
 class PDFProcessingError(BaseException):
@@ -35,7 +35,7 @@ def create_output_data_path(benchmark_dir_path, dataset_name):
 
 def sentence_split_review(review, splitter=None):
     if splitter is None:
-        splitter = SpacySplitter(spacy.load('en_core_sci_sm'))
+        splitter = SpacySplitter(spacy.load("en_core_sci_sm"))
 
     res = {}
     for field, text in review["report"].items():
@@ -52,7 +52,7 @@ def get_review_sentences(review):
     for field, sents in review["meta"]["sentences"].items():
         txt = review["report"][field]
 
-        res[field] = [txt[s[0]:s[1]] for s in sents]
+        res[field] = [txt[s[0] : s[1]] for s in sents]
 
     return res
 
@@ -72,14 +72,20 @@ def clean_and_split_review(review):
         res = txt.strip()  # strip unnecessary whitespaces
 
         res = re.sub(r"\n{2,}", " <br> ", res)  # clear line break
-        res = re.sub(r" <br> [*\-] ", " <br> - ", res)  # replaced line break with an itemize
-        res = re.sub(r"\n[*\-] ", " <br> - ", res)  # non-replaced line break with an itemize
+        res = re.sub(
+            r" <br> [*\-] ", " <br> - ", res
+        )  # replaced line break with an itemize
+        res = re.sub(
+            r"\n[*\-] ", " <br> - ", res
+        )  # non-replaced line break with an itemize
         res = re.sub(r"^\* ", "- ", res)
 
         return res
 
     # splitter
-    nlp = spacy.load('en_core_sci_sm', exclude=["ner", "tagger", "parser", "lemmatizer"])
+    nlp = spacy.load(
+        "en_core_sci_sm", exclude=["ner", "tagger", "parser", "lemmatizer"]
+    )
     nlp.add_pipe("sentencizer")
 
     nlp.tokenizer.add_special_case("<br>", [{ORTH: "<br>"}])
@@ -96,7 +102,7 @@ def clean_and_split_review(review):
             new_text = [s.text for s in processed.sents]
             for i, t in enumerate(new_text):
                 if t == "<br>" and i > 0:
-                    new_text[i-1] = new_text[i-1] + "\n"
+                    new_text[i - 1] = new_text[i - 1] + "\n"
 
             # update sentences to exclude <br> ones and replace any br left in a sentence
             new_text = [t.replace("<br>", "") for t in new_text if t != "<br>"]
@@ -105,7 +111,7 @@ def clean_and_split_review(review):
             tmp = []
             for t in new_text:
                 if len(t) > 1:
-                    e = t[0]+ t[1:-1].replace("\n", " ") + t[-1]
+                    e = t[0] + t[1:-1].replace("\n", " ") + t[-1]
                 else:
                     e = t
 
@@ -120,7 +126,7 @@ def clean_and_split_review(review):
             sentences[field] = []
             ix = 0
             for s in new_text:
-                sentences[field] += [(ix, ix+len(s))]
+                sentences[field] += [(ix, ix + len(s))]
                 ix += len(s)
 
     review["meta"]["sentences"] = sentences

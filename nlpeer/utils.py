@@ -1,4 +1,4 @@
-from os import walk, path
+from os import path, walk
 
 
 def list_files(dir_path, level=1):
@@ -23,5 +23,3 @@ def list_dirs(dir_path, level=1):
         for f in files:
             yield f
         break
-
-

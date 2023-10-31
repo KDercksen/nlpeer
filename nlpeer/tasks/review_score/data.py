@@ -4,26 +4,33 @@ from copy import copy
 from os.path import join as pjoin
 
 import sklearn
+from datasets import Dataset, DatasetDict
 from pytorch_lightning import LightningDataModule
 from torch.utils.data import DataLoader
-from datasets import Dataset, DatasetDict
 
-from nlpeer.data import filter_gte_x_reviews, load_splits_from_file, \
-    store_splits_to_file, paperwise_random_split
 from nlpeer import DATASETS, PAPERFORMATS, ReviewPaperDataset
+from nlpeer.data import (
+    filter_gte_x_reviews,
+    load_splits_from_file,
+    paperwise_random_split,
+    store_splits_to_file,
+)
 from nlpeer.tasks import ReviewScorePredictionDataset
 
 
 class ReviewScorePredictionDataModule(LightningDataModule):
-    def __init__(self, benchmark_path: str,
-                 dataset_type: DATASETS,
-                 in_transform,
-                 target_transform,
-                 tokenizer,
-                 data_loader_config,
-                 paper_version=1,
-                 filter=None,
-                 paper_format=PAPERFORMATS.ITG):
+    def __init__(
+        self,
+        benchmark_path: str,
+        dataset_type: DATASETS,
+        in_transform,
+        target_transform,
+        tokenizer,
+        data_loader_config,
+        paper_version=1,
+        filter=None,
+        paper_format=PAPERFORMATS.ITG,
+    ):
         super().__init__()
 
         self.base_path = benchmark_path
@@ -44,21 +51,25 @@ class ReviewScorePredictionDataModule(LightningDataModule):
     def _load_splits_idx(self):
         fp = pjoin(self.base_path, self.dataset_type.value, "splits", "rsp_split.json")
 
-        assert os.path.exists(fp) and os.path.isfile(fp), \
-            f"Cannot setup ReviewScorePrediction splits, as {fp} does not exist."
+        assert os.path.exists(fp) and os.path.isfile(
+            fp
+        ), f"Cannot setup ReviewScorePrediction splits, as {fp} does not exist."
 
         return load_splits_from_file(fp, self.dataset_type)
 
     def setup(self, stage: str | None) -> None:
-        '''called one each GPU separately - stage defines if we are at fit or test step'''
+        """called one each GPU separately - stage defines if we are at fit or test step"""
 
         # load all data
-        full_dataset = ReviewPaperDataset(self.base_path, self.dataset_type, self.paper_version, self.paper_format)
+        full_dataset = ReviewPaperDataset(
+            self.base_path, self.dataset_type, self.paper_version, self.paper_format
+        )
 
-        rsp_data = ReviewScorePredictionDataset(full_dataset,
-                                                transform=self.in_transform,
-                                                target_transform=self.target_transform)
-
+        rsp_data = ReviewScorePredictionDataset(
+            full_dataset,
+            transform=self.in_transform,
+            target_transform=self.target_transform,
+        )
 
         # assign each review a split by its rid loaded from disk
         split_ixs = []
@@ -71,17 +82,17 @@ class ReviewScorePredictionDataModule(LightningDataModule):
 
         print(f"{len(split_ixs[0])} Training samples loaded")
 
-        self.dataset = DatasetDict({
-            "train": Dataset.from_dict(rsp_data.to_dict(split_ixs[0])),
-            "dev": Dataset.from_dict(rsp_data.to_dict(split_ixs[1])),
-            "test": Dataset.from_dict(rsp_data.to_dict(split_ixs[2])),
-        })
+        self.dataset = DatasetDict(
+            {
+                "train": Dataset.from_dict(rsp_data.to_dict(split_ixs[0])),
+                "dev": Dataset.from_dict(rsp_data.to_dict(split_ixs[1])),
+                "test": Dataset.from_dict(rsp_data.to_dict(split_ixs[2])),
+            }
+        )
 
         for split in self.dataset.keys():
             self.dataset[split] = self.dataset[split].map(
-                self.convert_to_features,
-                batched=True,
-                remove_columns=["txt", "oscore"]
+                self.convert_to_features, batched=True, remove_columns=["txt", "oscore"]
             )
             self.dataset[split].set_format(type="torch")
 
@@ -123,10 +134,9 @@ class ReviewScorePredictionDataModule(LightningDataModule):
         return features
 
 
-def create_and_store_splits(full_data: ReviewPaperDataset,
-                            out_dir,
-                            splits: list[float],
-                            random_gen: int = None):
+def create_and_store_splits(
+    full_data: ReviewPaperDataset, out_dir, splits: list[float], random_gen: int = None
+):
     splits = paperwise_random_split(full_data, splits, random_gen)
 
     out_path = os.path.join(out_dir, "rsp_split.json")
@@ -135,16 +145,17 @@ def create_and_store_splits(full_data: ReviewPaperDataset,
     return out_path
 
 
-def prepare_dataset_splits(benchmark_path, paper_version, splits, random_gen, datasets=None):
+def prepare_dataset_splits(
+    benchmark_path, paper_version, splits, random_gen, datasets=None
+):
     if datasets is None:
         datasets = [d for d in DATASETS]
 
     out_files = []
     for d in datasets:
-        full_dataset = ReviewPaperDataset(benchmark_path,
-                                          d,
-                                          paper_version,
-                                          PAPERFORMATS.ITG)
+        full_dataset = ReviewPaperDataset(
+            benchmark_path, d, paper_version, PAPERFORMATS.ITG
+        )
 
         # filter by >= 1 review per paper
         filter_gte_x_reviews(full_dataset, 1)
@@ -153,22 +164,41 @@ def prepare_dataset_splits(benchmark_path, paper_version, splits, random_gen, da
         if not os.path.exists(out_path):
             os.mkdir(out_path)
 
-        out_files += [create_and_store_splits(full_dataset, out_path, splits, random_gen)]
+        out_files += [
+            create_and_store_splits(full_dataset, out_path, splits, random_gen)
+        ]
 
     return out_files
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--benchmark_dir", required=True, help="Path to the benchmark directory")
-    parser.add_argument("--paper_version", required=True, help="Which paper version", type=int)
-    parser.add_argument("--random_seed", required=True, help="Random seed to generate random splits", type=int)
-    parser.add_argument("--datasets", nargs="*", required=False, help="list of datasets, if applicable", type=str)
+    parser.add_argument(
+        "--benchmark_dir", required=True, help="Path to the benchmark directory"
+    )
+    parser.add_argument(
+        "--paper_version", required=True, help="Which paper version", type=int
+    )
+    parser.add_argument(
+        "--random_seed",
+        required=True,
+        help="Random seed to generate random splits",
+        type=int,
+    )
+    parser.add_argument(
+        "--datasets",
+        nargs="*",
+        required=False,
+        help="list of datasets, if applicable",
+        type=str,
+    )
 
     args = parser.parse_args()
 
-    prepare_dataset_splits(args.benchmark_dir,
-                           args.paper_version,
-                           [0.7, 0.1, 0.2],
-                           args.random_seed,
-                           [DATASETS[d] for d in args.datasets])
+    prepare_dataset_splits(
+        args.benchmark_dir,
+        args.paper_version,
+        [0.7, 0.1, 0.2],
+        args.random_seed,
+        [DATASETS[d] for d in args.datasets],
+    )

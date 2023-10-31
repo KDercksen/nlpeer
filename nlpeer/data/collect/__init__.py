@@ -7,20 +7,18 @@ import urllib
 import pandas as pd
 from tqdm import tqdm
 
-
 if "acl-anthology" not in os.environ["PYTHONPATH"]:
-    print("WARNING: The ACL anthology library might be missing from your Python path! Required for matching!")
+    print(
+        "WARNING: The ACL anthology library might be missing from your Python path! Required for matching!"
+    )
+
+from os.path import join as pjoin
 
 from anthology import Anthology
 from nltk.translate.bleu_score import sentence_bleu
-from os.path import join as pjoin
 
 ANTHOLOGY_DATA_PATH = os.environ.get("ACL_ANTHOLOGY_DATAPATH")
-ANTHOLOGY_DATA_MAP = {
-    "ACL2017": "P17",
-    "CONLL2016": "K16",
-    "COLING2020": "2020.coling"
-}
+ANTHOLOGY_DATA_MAP = {"ACL2017": "P17", "CONLL2016": "K16", "COLING2020": "2020.coling"}
 
 
 def in_accepted_venue(accepted_at, paper_id):
@@ -33,11 +31,22 @@ def fetch_camera_ready_mapping(papers, venue, outpath, anthology_path=None):
 
     a = Anthology(anthology_path)
 
-    anthology_papers = filter(lambda x: any(v for v in ANTHOLOGY_DATA_MAP.values() if x[0].startswith(v)),
-                              a.papers.items())
-    anthology_papers = list(map(lambda p: (
-        p[0], p[1].get_title("text"), p[1].get_abstract(), p[1].as_citeproc_json()[0]["author"], p[1].pdf),
-                                anthology_papers))
+    anthology_papers = filter(
+        lambda x: any(v for v in ANTHOLOGY_DATA_MAP.values() if x[0].startswith(v)),
+        a.papers.items(),
+    )
+    anthology_papers = list(
+        map(
+            lambda p: (
+                p[0],
+                p[1].get_title("text"),
+                p[1].get_abstract(),
+                p[1].as_citeproc_json()[0]["author"],
+                p[1].pdf,
+            ),
+            anthology_papers,
+        )
+    )
 
     misses = {}
     matches = {}
@@ -60,33 +69,54 @@ def fetch_camera_ready_mapping(papers, venue, outpath, anthology_path=None):
             else:
                 abs_score = 0
 
-            perfect_matched = (title_score > 0.9 and abs_score > 0.9)
+            perfect_matched = title_score > 0.9 and abs_score > 0.9
             certainty = (title_score + abs_score) / 2
             uncertainty = 1 - certainty  # lower uncertainty == better == more certain
 
-            entry = {"anthology_id": apid,
-                     "url": apurl,
-                     "title": aptitle,
-                     "authors": apauthors,
-                     "tscore": title_score,
-                     "absscore": abs_score
-                     }
+            entry = {
+                "anthology_id": apid,
+                "url": apurl,
+                "title": aptitle,
+                "authors": apauthors,
+                "tscore": title_score,
+                "absscore": abs_score,
+            }
 
             if perfect_matched:
                 print(f"Perfect match on {pid}")
-                top_k = [(uncertainty, title_score, abs_score, entry["anthology_id"], entry)]
+                top_k = [
+                    (uncertainty, title_score, abs_score, entry["anthology_id"], entry)
+                ]
                 break
             elif uncertainty < 0.9:
                 if len(top_k) < max_k:
                     try:
-                        heapq.heappush(top_k, (uncertainty, title_score, abs_score, entry["anthology_id"], entry))
+                        heapq.heappush(
+                            top_k,
+                            (
+                                uncertainty,
+                                title_score,
+                                abs_score,
+                                entry["anthology_id"],
+                                entry,
+                            ),
+                        )
                     except TypeError as e:
                         # could not replace, because there is an element with the same score
                         # ignore
                         heapq.heapify(top_k)
                 elif top_k[0][0] > uncertainty:
                     try:
-                        heapq.heapreplace(top_k, (uncertainty, title_score, abs_score, entry["anthology_id"], entry))
+                        heapq.heapreplace(
+                            top_k,
+                            (
+                                uncertainty,
+                                title_score,
+                                abs_score,
+                                entry["anthology_id"],
+                                entry,
+                            ),
+                        )
                     except TypeError as e:
                         # could not replace, because there is an element with the same score
                         # ignore
@@ -96,13 +126,13 @@ def fetch_camera_ready_mapping(papers, venue, outpath, anthology_path=None):
             print(f"Miss on {pid}")
             misses[pid] = {
                 "title": p["title"] if "title" in p else None,
-                "accepted": venue
+                "accepted": venue,
             }
         else:
             matches[pid] = {
                 "title": p["title"] if "title" in p else None,
                 "accepted": venue,
-                "matches": [e[4] for e in top_k]
+                "matches": [e[4] for e in top_k],
             }
 
     with open(os.path.join(outpath, f"{venue}_matching.json"), "w+") as file:
@@ -112,17 +142,28 @@ def fetch_camera_ready_mapping(papers, venue, outpath, anthology_path=None):
         with open(os.path.join(outpath, f"{venue}_missed.json"), "w+") as file:
             json.dump(misses, file)
 
-    df = pd.DataFrame({"sid": list(papers.keys()),
-                       "title": [p["title"] for p in papers.values()],
-                       "match": [(matches[pid]["matches"][0]["url"] if pid in matches else "") for pid in
-                                 papers],
-                       "tscore": [(matches[sid]["matches"][0]["tscore"] if sid in matches else "") for sid in
-                                  papers],
-                       "absscore": [(matches[sid]["matches"][0]["absscore"] if sid in matches else "") for sid in
-                                    papers],
-                       "other_matches": [(len(matches[sid]["matches"]) if sid in matches else "") for sid in
-                                         papers]
-                       })
+    df = pd.DataFrame(
+        {
+            "sid": list(papers.keys()),
+            "title": [p["title"] for p in papers.values()],
+            "match": [
+                (matches[pid]["matches"][0]["url"] if pid in matches else "")
+                for pid in papers
+            ],
+            "tscore": [
+                (matches[sid]["matches"][0]["tscore"] if sid in matches else "")
+                for sid in papers
+            ],
+            "absscore": [
+                (matches[sid]["matches"][0]["absscore"] if sid in matches else "")
+                for sid in papers
+            ],
+            "other_matches": [
+                (len(matches[sid]["matches"]) if sid in matches else "")
+                for sid in papers
+            ],
+        }
+    )
     df.to_csv(os.path.join(outpath, f"{venue}_to_be_approved.csv"))
 
 
@@ -133,7 +174,9 @@ def match_abstracts(absPR, absACL):
     if absPR == absACL:
         return 1
     else:
-        return sentence_bleu([absPR.split(" ")], absACL.split(" "), weights=(1 / 3, 1 / 3, 1 / 3))  # uses 3-grams
+        return sentence_bleu(
+            [absPR.split(" ")], absACL.split(" "), weights=(1 / 3, 1 / 3, 1 / 3)
+        )  # uses 3-grams
 
 
 def match_title(titlePR, titleACL):
@@ -143,7 +186,9 @@ def match_title(titlePR, titleACL):
     if titlePR == titleACL:
         return 1
     else:
-        return sentence_bleu([titlePR.split(" ")], titleACL.split(" "), weights=(2 / 3, 1 / 3))  # uses pairs
+        return sentence_bleu(
+            [titlePR.split(" ")], titleACL.split(" "), weights=(2 / 3, 1 / 3)
+        )  # uses pairs
 
 
 def aggregate_mappings(paths):

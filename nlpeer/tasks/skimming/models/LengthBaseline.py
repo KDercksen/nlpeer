@@ -7,17 +7,26 @@ import pytorch_lightning as pl
 import torch
 import wandb
 from pytorch_lightning.utilities.types import STEP_OUTPUT
-from transformers import AutoModel, AutoTokenizer, AutoModelForSequenceClassification, AutoConfig, \
-    get_linear_schedule_with_warmup
+from transformers import (
+    AutoConfig,
+    AutoModel,
+    AutoModelForSequenceClassification,
+    AutoTokenizer,
+    get_linear_schedule_with_warmup,
+)
 
 # model
-from nlpeer import DATASETS, DATASET_REVIEW_OVERALL_SCALES
-from nlpeer.tasks import get_optimizer, get_loss_function, get_paragraph_text, get_class_map_skimming
+from nlpeer import DATASET_REVIEW_OVERALL_SCALES, DATASETS
+from nlpeer.tasks import (
+    get_class_map_skimming,
+    get_loss_function,
+    get_optimizer,
+    get_paragraph_text,
+)
 
 
 class LitBaselineSkimmingModule(pl.LightningModule):
-    def __init__(self,
-                 **kwargs):
+    def __init__(self, **kwargs):
         super().__init__()
 
         # save hyperparameters
@@ -43,7 +52,10 @@ class LitBaselineSkimmingModule(pl.LightningModule):
             out_n = self(negatives[i])
             targets_n = negatives[i]["labels"].to(torch.int32)
 
-            vloss = self.dev_loss(torch.cat((out_p, out_n), 0).flatten(), torch.cat((targets_p, targets_n), 0).flatten())
+            vloss = self.dev_loss(
+                torch.cat((out_p, out_n), 0).flatten(),
+                torch.cat((targets_p, targets_n), 0).flatten(),
+            )
             total_vloss = total_vloss + vloss if total_vloss is not None else vloss
 
         self.log("val_loss", total_vloss / float(batch_size))
@@ -56,7 +68,7 @@ class LitBaselineSkimmingModule(pl.LightningModule):
 
         batch_size = len(positives)
 
-        targets, predictions, logits = [],[], []
+        targets, predictions, logits = [], [], []
         for i in range(batch_size):
             out_p = self(positives[i])
             targets_p = positives[i]["labels"].to(torch.int32)
@@ -65,14 +77,35 @@ class LitBaselineSkimmingModule(pl.LightningModule):
             targets_n = negatives[i]["labels"].to(torch.int32)
 
             targets += [torch.concat((targets_p.flatten(), targets_n.flatten()), 0)]
-            predictions += [torch.concat((torch.Tensor([(1 if p > self.thresh else 0) for p in out_p]).flatten(), torch.Tensor([(1 if p > self.thresh else 0) for p in out_n]).flatten()), 0)]
-            logits += [torch.concat((torch.Tensor([[0, x] for x in out_p.flatten()]),
-                                     torch.Tensor([[0, x] for x in out_n.flatten()])), 0)]
+            predictions += [
+                torch.concat(
+                    (
+                        torch.Tensor(
+                            [(1 if p > self.thresh else 0) for p in out_p]
+                        ).flatten(),
+                        torch.Tensor(
+                            [(1 if p > self.thresh else 0) for p in out_n]
+                        ).flatten(),
+                    ),
+                    0,
+                )
+            ]
+            logits += [
+                torch.concat(
+                    (
+                        torch.Tensor([[0, x] for x in out_p.flatten()]),
+                        torch.Tensor([[0, x] for x in out_n.flatten()]),
+                    ),
+                    0,
+                )
+            ]
 
         return {"predictions": predictions, "labels": targets, "logits": logits}
 
     def on_predict_epoch_end(self, results):
-        preds = [[y.detach().cpu().numpy() for y in x["predictions"]] for x in results[0]]
+        preds = [
+            [y.detach().cpu().numpy() for y in x["predictions"]] for x in results[0]
+        ]
         labels = [[y.detach().cpu().numpy() for y in x["labels"]] for x in results[0]]
         logits = [[y.detach().cpu().numpy() for y in x["logits"]] for x in results[0]]
 

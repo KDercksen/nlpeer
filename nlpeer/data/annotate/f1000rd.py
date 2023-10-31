@@ -3,7 +3,6 @@ import json
 import logging
 import os
 import re
-
 from os.path import join as pjoin
 
 import fuzzysearch
@@ -22,7 +21,7 @@ OUT_PATH = os.environ.get("OUT_PATH")
 
 def store_collection_meta(meta, base_path):
     if os.path.exists(pjoin(base_path, "meta.json")):
-        with open(pjoin(base_path,"meta.json"), "r") as f:
+        with open(pjoin(base_path, "meta.json"), "r") as f:
             prev = json.load(f)
     else:
         prev = {}
@@ -43,7 +42,7 @@ def load_review_reports(path):
             with open(r, "r") as f:
                 report = IntertextDocument.load_json(f)
 
-            rid = os.path.basename(r)[:-len(".json")]
+            rid = os.path.basename(r)[: -len(".json")]
             revs[pid][rid] = report
             rid_map[rid] = pid
 
@@ -61,12 +60,14 @@ def load_papers(path):
     return papers
 
 
-def match_and_update_review_sentences(review_rd:IntertextDocument, review_orig):
+def match_and_update_review_sentences(review_rd: IntertextDocument, review_orig):
     new_sentences = []
     matched = {}
     review_text = review_orig["report"]["main"]
     review_sentences = get_review_sentences(review_orig)["main"]
-    review_sentences_cleaned = [re.sub("[^A-Za-z1-9 \-]", "", s.lower()).strip() for s in review_sentences]
+    review_sentences_cleaned = [
+        re.sub("[^A-Za-z1-9 \-]", "", s.lower()).strip() for s in review_sentences
+    ]
 
     unmatched = []
     for snode in review_rd.nodes:
@@ -82,13 +83,11 @@ def match_and_update_review_sentences(review_rd:IntertextDocument, review_orig):
             end_match = start_match + len(sentence)
         else:
             search_res = fuzzysearch.find_near_matches(
-                sentence.lower(),
-                review_text.lower(),
-                max_l_dist=2
+                sentence.lower(), review_text.lower(), max_l_dist=2
             )
 
             if 0 < len(search_res) <= 3:
-                best = list(sorted(search_res, key= lambda x: x.dist))[0]
+                best = list(sorted(search_res, key=lambda x: x.dist))[0]
                 start_match = best.start
                 end_match = best.end
 
@@ -99,7 +98,9 @@ def match_and_update_review_sentences(review_rd:IntertextDocument, review_orig):
         new_sentences += [(start_match, end_match)]
         matched[snode.ix] = len(new_sentences) - 1
 
-    review_orig["meta"]["sentences"]["main"] = [[nsent[0], nsent[1]] for nsent in new_sentences]
+    review_orig["meta"]["sentences"]["main"] = [
+        [nsent[0], nsent[1]] for nsent in new_sentences
+    ]
 
     return matched, unmatched
 
@@ -116,7 +117,9 @@ def annotate_review_sentences(sentence_mapping, label_map):
     return annotations, errors
 
 
-def match_and_update_paper_sentences(paper_rd: IntertextDocument, paper_orig:IntertextDocument):
+def match_and_update_paper_sentences(
+    paper_rd: IntertextDocument, paper_orig: IntertextDocument
+):
     def is_in_node(sentence, node):
         return sentence.lower().strip() in node.content.lower()
 
@@ -146,7 +149,11 @@ def match_and_update_paper_sentences(paper_rd: IntertextDocument, paper_orig:Int
 
             if is_in_node(sentence, cnode):
                 start_orig = cnode.content.lower().find(sentence.lower())
-                matched[snode.ix] = (cnode.ix, start_orig, start_orig + len(sentence.strip().lower()))
+                matched[snode.ix] = (
+                    cnode.ix,
+                    start_orig,
+                    start_orig + len(sentence.strip().lower()),
+                )
                 matched_nodes[snode.src_node.ix] = cnode.ix
                 match = True
                 break
@@ -158,7 +165,13 @@ def match_and_update_paper_sentences(paper_rd: IntertextDocument, paper_orig:Int
                 oanodes = [n for n in paper_orig.nodes if n.ntype == NTYPE_ABSTRACT]
                 if len(oanodes) > 0:
                     oanode = oanodes[0]
-                    osnodes = [n for n in paper_orig.nodes if type(n) == SpanNode and n.ntype == "s" and n.src_node.ix == oanode.ix]
+                    osnodes = [
+                        n
+                        for n in paper_orig.nodes
+                        if type(n) == SpanNode
+                        and n.ntype == "s"
+                        and n.src_node.ix == oanode.ix
+                    ]
 
                     if len(osnodes) > 0:
                         osnode = osnodes[0]
@@ -167,7 +180,7 @@ def match_and_update_paper_sentences(paper_rd: IntertextDocument, paper_orig:Int
                     matched[snode.ix] = (oanode.ix, osnode.start, osnode.end)
                     matched_nodes[snode.src_node.ix] = oanode.ix
             else:
-                best_match = heuristic_match(sentence)    # not implemented atm
+                best_match = heuristic_match(sentence)  # not implemented atm
 
                 if best_match is None:
                     unmatched += [(snode.start, snode.end, sentence)]
@@ -201,12 +214,14 @@ def match_and_update_paper_sentences(paper_rd: IntertextDocument, paper_orig:Int
     match_map = {}
     for rd_ix in matched:
         orig_ix, orig_start, orig_end = matched[rd_ix]
-        sentNode = SpanNode(ntype="s",
-                            src_node=paper_orig.get_node_by_ix(orig_ix),
-                            start=orig_start,
-                            end=orig_end,
-                            meta=paper_rd.get_node_by_ix(rd_ix).meta)
-        #todo update ix to match pattern of pid_ver_nodenum@sentnum
+        sentNode = SpanNode(
+            ntype="s",
+            src_node=paper_orig.get_node_by_ix(orig_ix),
+            start=orig_start,
+            end=orig_end,
+            meta=paper_rd.get_node_by_ix(rd_ix).meta,
+        )
+        # todo update ix to match pattern of pid_ver_nodenum@sentnum
         paper_orig.add_node(sentNode)
         match_map[rd_ix] = sentNode.ix
 
@@ -221,8 +236,9 @@ def create(in_path=None, out_path=None):
     out_f1000_path = pjoin(out_path, "F1000", "data")
     out_annotations_path = pjoin(out_path, "F1000", "annotations")
 
-    assert out_path is not None and in_path is not None, "Cannot create F1000RD dataset. In and/or out paths are " \
-                                                         "missing! "
+    assert out_path is not None and in_path is not None, (
+        "Cannot create F1000RD dataset. In and/or out paths are " "missing! "
+    )
 
     logging.info(f"Loading data from {in_path}")
     logging.info(f"Storing data at {out_path}")
@@ -240,11 +256,7 @@ def create(in_path=None, out_path=None):
     collection_meta = {
         "dataset_timestamp": os.path.getmtime(itgs_path),
         "origin_dataset": "F1000RD",
-        "annotation_types": [
-            "rd_review_pragmatics",
-            "rd_elinks",
-            "rd_ilinks"
-        ]
+        "annotation_types": ["rd_review_pragmatics", "rd_elinks", "rd_ilinks"],
     }
     with open(pjoin(in_path, "LICENSE.txt"), "r") as f:
         collection_meta["license"] = f.read().strip()
@@ -277,7 +289,9 @@ def create(in_path=None, out_path=None):
         orig_review = next(r for r in orig_reviews if r["rid"] == rid)
 
         # update sentences in the review
-        rev_matched_sents, rev_unmatched_sents = match_and_update_review_sentences(rd_review, orig_review)
+        rev_matched_sents, rev_unmatched_sents = match_and_update_review_sentences(
+            rd_review, orig_review
+        )
         if len(rev_unmatched_sents) > 0:
             match_error += [("review", rid, r) for r in rev_unmatched_sents]
 
@@ -291,13 +305,17 @@ def create(in_path=None, out_path=None):
             orig_paper = IntertextDocument.load_json(f)
 
         # update paper sentences
-        paper_matched_sents, matched_nodes, paper_unmatched_sents = match_and_update_paper_sentences(rd_paper, orig_paper)
+        (
+            paper_matched_sents,
+            matched_nodes,
+            paper_unmatched_sents,
+        ) = match_and_update_paper_sentences(rd_paper, orig_paper)
         if len(paper_unmatched_sents) > 0:
             match_error += [("paper", pid, r) for r in paper_unmatched_sents]
         paper_matched_sents.update(matched_nodes)
 
         # store changed paper sentences
-        with open(orig_paper_path, "w+")as f:
+        with open(orig_paper_path, "w+") as f:
             orig_paper.save_json(f)
 
         # pragmatics
@@ -314,21 +332,34 @@ def create(in_path=None, out_path=None):
             prag_annotations[pid][rid] = pannos
 
         # explicit links
-        errs = explicit_link_annotations(elink_annotations, elinks, paper_matched_sents, pid, rev_matched_sents, rid, orig_review)
+        errs = explicit_link_annotations(
+            elink_annotations,
+            elinks,
+            paper_matched_sents,
+            pid,
+            rev_matched_sents,
+            rid,
+            orig_review,
+        )
         anno_error += [("elink", pid, rid, e) for e in errs]
 
         # implicit links
-        errs = implicit_link_annotations(ilink_annotations, ilinks, paper_matched_sents, pid,
-                                 rev_matched_sents, rid)
+        errs = implicit_link_annotations(
+            ilink_annotations, ilinks, paper_matched_sents, pid, rev_matched_sents, rid
+        )
         anno_error += [("ilink", pid, rid, e) for e in errs]
 
     # ignore boilerplate not matched errors
-    anno_error = [e for e in anno_error if not(e[0] == "prag" and e[-1].endswith("_0@0"))]
+    anno_error = [
+        e for e in anno_error if not (e[0] == "prag" and e[-1].endswith("_0@0"))
+    ]
 
     # write to annotations
-    for o, a in [("rd_review_pragmatics", prag_annotations),
-                 ("rd_elinks", elink_annotations),
-                 ("rd_ilinks", ilink_annotations)]:
+    for o, a in [
+        ("rd_review_pragmatics", prag_annotations),
+        ("rd_elinks", elink_annotations),
+        ("rd_ilinks", ilink_annotations),
+    ]:
         for pid in a:
             if len(a[pid]) == 0:
                 continue
@@ -348,15 +379,18 @@ def create(in_path=None, out_path=None):
         if e[2][2].strip().startswith("Reviewer response for version"):
             continue
 
-        logging.info(f"Failed to match for {e[0]} {e[1]} with start= {e[2][0]}; end= {e[2][1]} and sentence: {e[2][2]}")
+        logging.info(
+            f"Failed to match for {e[0]} {e[1]} with start= {e[2][0]}; end= {e[2][1]} and sentence: {e[2][2]}"
+        )
 
     logging.warning("Annotation Transfer Errors")
     for e in anno_error:
         logging.warning(f"Failed to transfer annotations: {e}")
 
 
-def implicit_link_annotations(ilink_annotations, ilinks, paper_matched_sents, pid, rev_matched_sents,
-                             rid):
+def implicit_link_annotations(
+    ilink_annotations, ilinks, paper_matched_sents, pid, rev_matched_sents, rid
+):
     errors = []
     rows = list(ilinks[ilinks.review_id == rid].iterrows())
     if len(rows) > 0:
@@ -366,10 +400,16 @@ def implicit_link_annotations(ilink_annotations, ilinks, paper_matched_sents, pi
             ilink_annotations[pid][rid] = {}
 
         for _, entry in rows:
-            new_rsent_id = rev_matched_sents[entry["review_sentence_id"]] if entry[
-                                                                                 "review_sentence_id"] in rev_matched_sents else None
-            new_psent_id = paper_matched_sents[entry["paper_sentence_id"]] if entry[
-                                                                                  "paper_sentence_id"] in paper_matched_sents else None
+            new_rsent_id = (
+                rev_matched_sents[entry["review_sentence_id"]]
+                if entry["review_sentence_id"] in rev_matched_sents
+                else None
+            )
+            new_psent_id = (
+                paper_matched_sents[entry["paper_sentence_id"]]
+                if entry["paper_sentence_id"] in paper_matched_sents
+                else None
+            )
 
             imp_a = entry["imp_a"] if pd.notna(entry["imp_a"]) else 0
             imp_b = entry["imp_b"] if pd.notna(entry["imp_b"]) else 0
@@ -385,7 +425,9 @@ def implicit_link_annotations(ilink_annotations, ilinks, paper_matched_sents, pi
     return errors
 
 
-def explicit_link_annotations(elink_annotations, elinks, paper_matched_sents, pid, rev_matched_sents, rid, review):
+def explicit_link_annotations(
+    elink_annotations, elinks, paper_matched_sents, pid, rev_matched_sents, rid, review
+):
     errors = []
     rows = list(elinks[elinks.review_id == rid].iterrows())
     if len(rows) > 0:
@@ -395,30 +437,50 @@ def explicit_link_annotations(elink_annotations, elinks, paper_matched_sents, pi
             elink_annotations[pid][rid] = {"main": []}
 
         for _, entry in rows:
-            new_rsent_id = rev_matched_sents[entry["review_sentence_id"]] if entry[
-                                                                                 "review_sentence_id"] in rev_matched_sents else None
-            new_psent_id = paper_matched_sents[entry["paper_sentence_id"]] if entry[
-                                                                                  "paper_sentence_id"] in paper_matched_sents else None
+            new_rsent_id = (
+                rev_matched_sents[entry["review_sentence_id"]]
+                if entry["review_sentence_id"] in rev_matched_sents
+                else None
+            )
+            new_psent_id = (
+                paper_matched_sents[entry["paper_sentence_id"]]
+                if entry["paper_sentence_id"] in paper_matched_sents
+                else None
+            )
 
             if new_psent_id is None or new_rsent_id is None:
-                errors += [(entry["type"], entry["review_sentence_id"], entry["paper_sentence_id"], entry["review_text"], entry["paper_text"])]
+                errors += [
+                    (
+                        entry["type"],
+                        entry["review_sentence_id"],
+                        entry["paper_sentence_id"],
+                        entry["review_text"],
+                        entry["paper_text"],
+                    )
+                ]
                 continue
 
             sent_span = review["meta"]["sentences"]["main"][int(new_rsent_id)]
-            sent = review["report"]["main"][sent_span[0]: sent_span[1]]
+            sent = review["report"]["main"][sent_span[0] : sent_span[1]]
 
-            elink_annotations[pid][rid]["main"] += [{"type": entry["type"], "rev_span": sent_span, "rev_text": sent}]
+            elink_annotations[pid][rid]["main"] += [
+                {"type": entry["type"], "rev_span": sent_span, "rev_text": sent}
+            ]
 
     return errors
 
 
 def arg_parse():
-    parser = argparse.ArgumentParser(description="Creating the F1000 dataset within the benchmark")
+    parser = argparse.ArgumentParser(
+        description="Creating the F1000 dataset within the benchmark"
+    )
     parser.add_argument(
         "--data_path", type=str, help="Path to the directory of the F1000 dataset."
     )
     parser.add_argument(
-        "--output_directory", type=str, help="Path to the top directory of the benchmark dataset."
+        "--output_directory",
+        type=str,
+        help="Path to the top directory of the benchmark dataset.",
     )
 
     return parser

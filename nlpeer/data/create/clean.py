@@ -1,12 +1,11 @@
+import logging
 import os
 import re
-import logging
 from io import BytesIO
 
 import PyPDF2
 from PyPDF2 import PdfFileReader, PdfFileWriter
-from PyPDF2.generic import ContentStream, TextStringObject, NameObject, NumberObject
-
+from PyPDF2.generic import ContentStream, NameObject, NumberObject, TextStringObject
 
 line_num_matcher = re.compile("^\d{3,4}$")
 
@@ -40,7 +39,10 @@ def clean_pdf_draft(pdf_path, with_meta_data=False):
         if len(operands) != 1:
             return False
 
-        return "".join([str(o) for o in operands[0] if isinstance(o, TextStringObject)]) == "AnonymousACLsubmission"
+        return (
+            "".join([str(o) for o in operands[0] if isinstance(o, TextStringObject)])
+            == "AnonymousACLsubmission"
+        )
 
     def _parse_lines(lines):
         res = []
@@ -58,7 +60,7 @@ def clean_pdf_draft(pdf_path, with_meta_data=False):
             res += [(line_number, parsed)]
         return res
 
-    out_dir = pdf_path[:-len(pdf_path.split(os.path.sep)[-1])]
+    out_dir = pdf_path[: -len(pdf_path.split(os.path.sep)[-1])]
     out_path = os.path.join(out_dir, "clean.pdf")
 
     try:
@@ -119,7 +121,12 @@ def clean_pdf_draft(pdf_path, with_meta_data=False):
 
                     # first line of the page -- get the last entry in line_content as a content
                     if first_line:
-                        page_content += [(operands, [line_content[-1]] if len(line_content) > 0 else [])]
+                        page_content += [
+                            (
+                                operands,
+                                [line_content[-1]] if len(line_content) > 0 else [],
+                            )
+                        ]
                         first_line = False
                     else:
                         page_content += [(operands, line_content)]
@@ -130,7 +137,7 @@ def clean_pdf_draft(pdf_path, with_meta_data=False):
                 else:
                     line_content += [operands]
 
-            op_i +=1
+            op_i += 1
 
         # delete elements from PDF
         acc = 0
@@ -139,10 +146,10 @@ def clean_pdf_draft(pdf_path, with_meta_data=False):
             acc += 1
 
         # todo try setting the rendered pane to the covered subset in ACL pdfs to guarantee excluding of weird fields
-        #page.mediabox.upper_right = (page.mediabox.right / 2, page.mediabox.top / 2)
+        # page.mediabox.upper_right = (page.mediabox.right / 2, page.mediabox.top / 2)
 
         # Set the modified content as content object on the page
-        page.__setitem__(NameObject('/Contents'), content)
+        page.__setitem__(NameObject("/Contents"), content)
 
         # parse the lines
         page_content = _parse_lines(page_content)
@@ -163,15 +170,16 @@ def clean_pdf_draft(pdf_path, with_meta_data=False):
 
     references_line = [l for l in lines if l[1].strip() == "References"]
     if len(references_line) > 0 and len(references_line[0]) > 0:
-        meta["bib_page_index"] = next(i for i, p in enumerate(pages) if int(p[0][0]) <= int(references_line[0][0]) <= int(p[1][0]))
+        meta["bib_page_index"] = next(
+            i
+            for i, p in enumerate(pages)
+            if int(p[0][0]) <= int(references_line[0][0]) <= int(p[1][0])
+        )
     else:
         meta["bib_page_index"] = None
 
     # override document info to a default value
-    pdf_writer.add_metadata({
-        "author": "Anonymous",
-        "author_raw": "Anonymous"
-    })
+    pdf_writer.add_metadata({"author": "Anonymous", "author_raw": "Anonymous"})
 
     # write to file
     with open(out_path, "wb") as output_file:
@@ -179,6 +187,8 @@ def clean_pdf_draft(pdf_path, with_meta_data=False):
 
     # default warning for validation
     if line_accu < 500:
-        logging.info(f"WARNING: Encountered a very low number of lines ({line_accu} < 500) in {output_file}.")
+        logging.info(
+            f"WARNING: Encountered a very low number of lines ({line_accu} < 500) in {output_file}."
+        )
 
     return meta

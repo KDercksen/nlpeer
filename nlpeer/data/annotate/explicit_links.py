@@ -4,25 +4,36 @@ import logging
 import os
 import re
 from os.path import join as pjoin
-from typing import List, Tuple, Dict
+from typing import Dict, List, Tuple
 
 import fuzzysearch
 import pandas as pd
 from intertext_graph.itgraph import IntertextDocument, SpanNode
 from tqdm import tqdm
 
-from nlpeer import NTYPE_TITLE, NTYPE_HEADING, NTYPE_ABSTRACT, NTYPE_FIGURE, NTYPE_TABLE, NTYPE_BIB_ITEM, DATASETS
+from nlpeer import (
+    DATASETS,
+    NTYPE_ABSTRACT,
+    NTYPE_BIB_ITEM,
+    NTYPE_FIGURE,
+    NTYPE_HEADING,
+    NTYPE_TABLE,
+    NTYPE_TITLE,
+)
 from nlpeer.data.utils import list_dirs, list_files
 
 OUT_PATH = os.environ.get("OUT_PATH")
 
-from external.f1000rd.analysis.exp_linker import replace_ordinal_string_with_number, \
-    split_quote, strip_numbers_from_title
+from external.f1000rd.analysis.exp_linker import (
+    replace_ordinal_string_with_number,
+    split_quote,
+    strip_numbers_from_title,
+)
 
 
 def store_collection_meta(meta, base_path):
     if os.path.exists(pjoin(base_path, "meta.json")):
-        with open(pjoin(base_path,"meta.json"), "r") as f:
+        with open(pjoin(base_path, "meta.json"), "r") as f:
             prev = json.load(f)
     else:
         prev = {}
@@ -39,14 +50,8 @@ def load_static_patterns(path=None):
     logging.info(f"Loading static patterns from {def_path}")
 
     # static patterns
-    patterns_df = pd.read_csv(
-        def_path,
-        delimiter='\t'
-    )
-    return [
-        (row.pattern, row.type)
-        for row in patterns_df.itertuples()
-    ]
+    patterns_df = pd.read_csv(def_path, delimiter="\t")
+    return [(row.pattern, row.type) for row in patterns_df.itertuples()]
 
 
 # adapted from F1000RD/analysis/exp_linker
@@ -64,6 +69,7 @@ def load_patterns(paper_doc: IntertextDocument):
 
     return hd_patterns
 
+
 # adapted from F1000RD
 def make_patterns_from_section_titles(section_titles: [str]):
     """
@@ -73,10 +79,10 @@ def make_patterns_from_section_titles(section_titles: [str]):
 
     # Lambda functions that return regex patterns
     TEMPLATES = [
-        lambda x: rf'^.{{,3}}(?P<ix>{x}).{{,3}}$', # Review headline with section title
-        lambda x: rf'\bthe (?P<ix>{x})', # "the results"
-        lambda x: rf'^.{{,3}}(?P<ix>{x}) ?[-:;.]', # "Results: bla bla"
-        lambda x: rf'(in|under) (?P<ix>{x})', # "in methods"
+        lambda x: rf"^.{{,3}}(?P<ix>{x}).{{,3}}$",  # Review headline with section title
+        lambda x: rf"\bthe (?P<ix>{x})",  # "the results"
+        lambda x: rf"^.{{,3}}(?P<ix>{x}) ?[-:;.]",  # "Results: bla bla"
+        lambda x: rf"(in|under) (?P<ix>{x})",  # "in methods"
         lambda x: rf'\b["”“‘’\'«‹»›„“‟”’❝❞❮❯⹂〝〞〟＂‚‘‛❛❜❟](?P<ix>{x})["”“‘’\'«‹»›„“‟”’❝❞❮❯⹂〝〞〟＂‚‘‛❛❜❟]\b'
         # Section title in quotation marks of various kinds
     ]
@@ -87,9 +93,10 @@ def make_patterns_from_section_titles(section_titles: [str]):
         for template_func in TEMPLATES:
             stripped_title = strip_numbers_from_title(re.escape(section_title.lower()))
             pattern = template_func(stripped_title)
-            patterns.append((pattern, 'sec-name'))
+            patterns.append((pattern, "sec-name"))
 
     return patterns
+
 
 # adapted from F1000RD/analysis/exp_linker
 def find_pointers(txt: str, patterns: List[Tuple[str, str]]) -> List[Tuple[str, str]]:
@@ -97,29 +104,26 @@ def find_pointers(txt: str, patterns: List[Tuple[str, str]]) -> List[Tuple[str, 
     for pat, cat in patterns:
         res = re.finditer(pat, txt.lower())
         for r in res:
-            value = r.group('ix')
-            value = replace_ordinal_string_with_number(
-                value
-            )
+            value = r.group("ix")
+            value = replace_ordinal_string_with_number(value)
             out += [(cat, value, r.regs[0])]
 
     return out
+
 
 # extended F1000RD
 def find_targets_for_sec_name(tgt_itg: IntertextDocument, match_text: str):
     """Handle "sec-name" matches"""
     ret = []
-    META = {
-        'exp': ['sec-name']
-    }
+    META = {"exp": ["sec-name"]}
 
     # Handle title, abstract and regular section names separately, because
     # they link to different ntypes
-    if match_text == 'title':
+    if match_text == "title":
         for tgt_node in tgt_itg.nodes:
             if tgt_node.ntype == NTYPE_TITLE:
                 ret.append(tuple((META, tgt_node)))
-    elif match_text == 'abstract':
+    elif match_text == "abstract":
         for tgt_node in tgt_itg.nodes:
             if tgt_node.ntype == NTYPE_ABSTRACT:
                 ret.append(tuple((META, tgt_node)))
@@ -131,59 +135,57 @@ def find_targets_for_sec_name(tgt_itg: IntertextDocument, match_text: str):
 
     return ret
 
-#extended F1000RD
+
+# extended F1000RD
 def find_targets_for_sec_ix(tgt_itg: IntertextDocument, match_text: str):
     """Handle section index matches"""
     ret = []
-    META = {
-        'exp': ['sec-ix']
-    }
+    META = {"exp": ["sec-ix"]}
 
     for tgt_node in tgt_itg.nodes:
         if tgt_node.ntype == NTYPE_HEADING:
             try:
-                if tgt_node.meta['section'] == match_text:
+                if tgt_node.meta["section"] == match_text:
                     ret.append(tuple((META, tgt_node)))
             except KeyError:
                 continue
 
     return ret
+
 
 # extended F1000RD
 def find_targets_for_fig_ix(tgt_itg: IntertextDocument, match_text: str):
     """Handles figure index matches"""
     ret = []
-    META = {
-        'exp': ['fig-ix']
-    }
+    META = {"exp": ["fig-ix"]}
 
     for tgt_node in tgt_itg.nodes:
         if tgt_node.ntype == NTYPE_FIGURE:
             try:
-                if tgt_node.meta['label'] == f'{match_text}':
+                if tgt_node.meta["label"] == f"{match_text}":
                     ret.append(tuple((META, tgt_node)))
             except KeyError:
                 continue
 
     return ret
 
+
 # extended F1000RD
-def find_targets_for_table_ix(tgt_itg: IntertextDocument,  match_text: str):
+def find_targets_for_table_ix(tgt_itg: IntertextDocument, match_text: str):
     """Handles table index matches"""
     ret = []
-    META = {
-        'exp': ['table-ix']
-    }
+    META = {"exp": ["table-ix"]}
 
     for tgt_node in tgt_itg.nodes:
         if tgt_node.ntype == NTYPE_TABLE:
             try:
-                if tgt_node.meta['label'] == f'{match_text}':
+                if tgt_node.meta["label"] == f"{match_text}":
                     ret.append(tuple((META, tgt_node)))
             except KeyError:
                 continue
 
     return ret
+
 
 # from F1000RD
 def find_targets_for_quote(tgt_itg: IntertextDocument, match_text: str):
@@ -201,9 +203,7 @@ def find_targets_for_quote(tgt_itg: IntertextDocument, match_text: str):
     MAX_N_HITS = 2
 
     ret = []
-    META={
-        'exp': ['quote']
-    }
+    META = {"exp": ["quote"]}
 
     # Split quote when it has gaps ("bla [...] bla")
     partial_quotes = split_quote(match_text)
@@ -225,7 +225,7 @@ def find_targets_for_quote(tgt_itg: IntertextDocument, match_text: str):
             search_res = fuzzysearch.find_near_matches(
                 partial_quote,
                 tgt_node.content[content_start_pos:].lower(),
-                max_l_dist=MAX_LEVENSHTEIN_DISTANCE
+                max_l_dist=MAX_LEVENSHTEIN_DISTANCE,
             )
 
             if len(search_res) > 0:
@@ -246,17 +246,16 @@ def find_targets_for_quote(tgt_itg: IntertextDocument, match_text: str):
 
     return ret
 
-def find_targets_for_ref_ix(tgt_itg: IntertextDocument,  match_text: str):
+
+def find_targets_for_ref_ix(tgt_itg: IntertextDocument, match_text: str):
     """Find links to references"""
     ret = []
-    META = {
-        'exp': ['ref-ix']
-    }
+    META = {"exp": ["ref-ix"]}
 
     for tgt_node in tgt_itg.nodes:
-        if (tgt_node.ntype == NTYPE_BIB_ITEM):
+        if tgt_node.ntype == NTYPE_BIB_ITEM:
             try:
-                if tgt_node.meta['id'] == f'ref-{match_text}':
+                if tgt_node.meta["id"] == f"ref-{match_text}":
                     ret.append(tuple((META, tgt_node)))
             except KeyError:
                 continue
@@ -265,11 +264,9 @@ def find_targets_for_ref_ix(tgt_itg: IntertextDocument,  match_text: str):
 
 
 def find_targets_for_line(tgt_itg: IntertextDocument, match_text: str):
-    """ Find links for line references"""
+    """Find links for line references"""
     ret = []
-    META = {
-        'exp': ['line']
-    }
+    META = {"exp": ["line"]}
 
     for tgt_node in tgt_itg.nodes:
         if type(tgt_node) == SpanNode and tgt_node.ntype == "line":
@@ -288,7 +285,10 @@ def find_targets_for_line(tgt_itg: IntertextDocument, match_text: str):
         if len(line_node) > 0:
             return line_node
         else:
-            best_range, best_match = int(ret[0][1].meta["line_end"]) - int(ret[0][1].meta["line_start"]), ret[0]
+            best_range, best_match = (
+                int(ret[0][1].meta["line_end"]) - int(ret[0][1].meta["line_start"]),
+                ret[0],
+            )
             for m, t in ret[1:]:
                 w = int(t.meta["line_end"]) - int(t.meta["line_start"])
                 if w < best_range:
@@ -303,22 +303,23 @@ def find_targets_for_line(tgt_itg: IntertextDocument, match_text: str):
 def find_anchors_for_match(doc, match):
     mtype, mtxt = match
 
-    if mtype == 'sec-name':
+    if mtype == "sec-name":
         return find_targets_for_sec_name(doc, mtxt)
-    elif mtype == 'sec-ix':
+    elif mtype == "sec-ix":
         return find_targets_for_sec_ix(doc, mtxt)
-    elif mtype == 'fig-ix':
+    elif mtype == "fig-ix":
         return find_targets_for_fig_ix(doc, mtxt)
-    elif mtype == 'table-ix':
+    elif mtype == "table-ix":
         return find_targets_for_table_ix(doc, mtxt)
-    elif mtype == 'quote':
+    elif mtype == "quote":
         return find_targets_for_quote(doc, mtxt)
-    elif mtype == 'ref-ix':
+    elif mtype == "ref-ix":
         return find_targets_for_ref_ix(doc, mtxt)
     elif mtype == "line":
         return find_targets_for_line(doc, mtxt)
     else:
         return None
+
 
 # adapted from F1000RD/analysis/exp_linker
 def find_anchors_in_paper(pointers, paper):
@@ -334,7 +335,14 @@ def find_anchors_in_paper(pointers, paper):
             else:
                 links_by_type += [(match, found_targets[0][0], found_targets[0][1])]
 
-        links[sec] = [[(pt,l) for pt, l in zip(pointer_types, links_by_type) if pt[0] == pointer[0] and pt[1] == pointer[1]][0][1] for pointer in pointers[sec]]
+        links[sec] = [
+            [
+                (pt, l)
+                for pt, l in zip(pointer_types, links_by_type)
+                if pt[0] == pointer[0] and pt[1] == pointer[1]
+            ][0][1]
+            for pointer in pointers[sec]
+        ]
 
     return links
 
@@ -358,7 +366,7 @@ def create(dataset_type: DATASETS, bm_path=None):
     # paths
     bm_path = OUT_PATH if bm_path is None else bm_path
     dataset_path = pjoin(bm_path, dataset_type.value, "data")
-    out_path =pjoin(bm_path, dataset_type.value, "annotations")
+    out_path = pjoin(bm_path, dataset_type.value, "annotations")
 
     if not os.path.exists(out_path):
         os.mkdir(out_path)
@@ -366,9 +374,7 @@ def create(dataset_type: DATASETS, bm_path=None):
     # meta info on dataset
     collection_meta = {
         "dataset": "Benchmark Explicit Links by F1000RD REGEX Linker",
-        "annotation_types": [
-            "elinks"
-        ]
+        "annotation_types": ["elinks"],
     }
     store_collection_meta(collection_meta, out_path)
 
@@ -419,21 +425,25 @@ def create(dataset_type: DATASETS, bm_path=None):
                         ptype, ptxt, pspan = p
 
                         if l is None:
-                            output[rid][sec] += [{
-                                "type": ptype,
-                                "rev_span": pspan,
-                                "rev_text": ptxt,
-                                "paper_target": None
-                            }]
+                            output[rid][sec] += [
+                                {
+                                    "type": ptype,
+                                    "rev_span": pspan,
+                                    "rev_text": ptxt,
+                                    "paper_target": None,
+                                }
+                            ]
                         else:
                             lmatch, lmeta, lnode = l
 
-                            output[rid][sec] += [{
-                                "type": ptype,
-                                "rev_span": pspan,
-                                "rev_text": ptxt,
-                                "paper_target": lnode.ix
-                            }]
+                            output[rid][sec] += [
+                                {
+                                    "type": ptype,
+                                    "rev_span": pspan,
+                                    "rev_text": ptxt,
+                                    "paper_target": lnode.ix,
+                                }
+                            ]
 
             links_out_path = pjoin(out_path, pid, version, "elinks.json")
             if not os.path.exists(pjoin(out_path, pid)):
@@ -446,12 +456,22 @@ def create(dataset_type: DATASETS, bm_path=None):
 
 
 def arg_parse():
-    parser = argparse.ArgumentParser(description="Creating the F1000 dataset within the benchmark")
-    parser.add_argument(
-        "--bm_path", type=str, required=True, help="Path to the directory of the benchmark dataset"
+    parser = argparse.ArgumentParser(
+        description="Creating the F1000 dataset within the benchmark"
     )
     parser.add_argument(
-        "--dataset_type", type=str, required=False, choices=[d.name for d in DATASETS], default=None, help="Dataset type"
+        "--bm_path",
+        type=str,
+        required=True,
+        help="Path to the directory of the benchmark dataset",
+    )
+    parser.add_argument(
+        "--dataset_type",
+        type=str,
+        required=False,
+        choices=[d.name for d in DATASETS],
+        default=None,
+        help="Dataset type",
     )
 
     return parser
@@ -465,6 +485,7 @@ def main(args):
             create(d, args.bm_path)
     else:
         create(DATASETS[args.dataset_type], args.bm_path)
+
 
 if __name__ == "__main__":
     parser = arg_parse()

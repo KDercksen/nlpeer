@@ -1,5 +1,5 @@
 import random
-from typing import Tuple, List
+from typing import List, Tuple
 
 import numpy as np
 import sklearn
@@ -7,14 +7,24 @@ import sklearn.metrics
 import spacecutter.losses
 import torch
 import torchmetrics
-from intertext_graph import Node, Etype, IntertextDocument, SpanNode
+from intertext_graph import Etype, IntertextDocument, Node, SpanNode
 from torch.nn import CrossEntropyLoss, NLLLoss
 from torch.optim import AdamW
 from torch.utils.data import Dataset
 
+from nlpeer import (
+    ANNOTATION_TYPES,
+    DATASET_REVIEW_OVERALL_SCALES,
+    DATASETS,
+    NTYPE_ABSTRACT,
+    NTYPE_HEADING,
+    NTYPE_PARAGRAPH,
+    NTYPE_TITLE,
+    PaperReviewAnnotations,
+    PaperReviewDataset,
+    ReviewPaperDataset,
+)
 from nlpeer.data import paperwise_stratified_split
-from nlpeer import NTYPE_TITLE, NTYPE_HEADING, NTYPE_PARAGRAPH, NTYPE_ABSTRACT, DATASETS, ANNOTATION_TYPES, \
-    DATASET_REVIEW_OVERALL_SCALES, PaperReviewDataset, ReviewPaperDataset, PaperReviewAnnotations
 
 
 def get_optimizer(name):
@@ -30,8 +40,8 @@ def get_loss_function(name, **kwargs):
     if name == "mse":
         return torch.nn.MSELoss()
     elif name == "mrse":
-        return lambda x, y: torch.sqrt(torch.nn.MSELoss()(x, y)) #fixme
-    elif name == "cll": # cumulative link loss
+        return lambda x, y: torch.sqrt(torch.nn.MSELoss()(x, y))  # fixme
+    elif name == "cll":  # cumulative link loss
         ## https://people.csail.mit.edu/jrennie/papers/ijcai05-preference.pdf
         ## https://fa.bianp.net/blog/2013/loss-functions-for-ordinal-regression/
         ## https://www.ethanrosenthal.com/2018/12/06/spacecutter-ordinal-regression/
@@ -43,6 +53,7 @@ def get_loss_function(name, **kwargs):
     elif name == "nll-weighted":
         return NLLLoss(weight=torch.tensor([0.4, 0.6]))
     elif name == "acc_reg_3":
+
         def acc_at_reg_intervals_3(x, y):
             acc = torchmetrics.Accuracy().cuda()
 
@@ -64,8 +75,12 @@ def get_loss_function(name, **kwargs):
             print("x......", x.tolist())
             print("y.......", y.tolist())
 
-            xh = histogram([(s-min(sc)) / (max(sc) - min(sc)) for s in sc], x.tolist())
-            yh = histogram([(s-min(sc)) / (max(sc) - min(sc)) for s in sc], y.tolist())
+            xh = histogram(
+                [(s - min(sc)) / (max(sc) - min(sc)) for s in sc], x.tolist()
+            )
+            yh = histogram(
+                [(s - min(sc)) / (max(sc) - min(sc)) for s in sc], y.tolist()
+            )
             print("xh", xh)
             print("yh", yh)
 
@@ -122,8 +137,11 @@ def merge_configs(config, default_config):
 def join_review_fields(review_report):
     with_main = "main" in review_report and review_report["main"] is not None
 
-    return "\n".join(f"{fname.title()}\n"+ ftext.replace('\n', '') + f"\n" for (fname, ftext) in review_report.items() if fname != "main") \
-           + (review_report["main"].replace("\n", "") + "\n" if with_main else "")
+    return "\n".join(
+        f"{fname.title()}\n" + ftext.replace("\n", "") + f"\n"
+        for (fname, ftext) in review_report.items()
+        if fname != "main"
+    ) + (review_report["main"].replace("\n", "") + "\n" if with_main else "")
 
 
 class ReviewScorePredictionDataset(Dataset):
@@ -131,7 +149,10 @@ class ReviewScorePredictionDataset(Dataset):
     Task:
         Review x paper (abs) -> review score
     """
-    def __init__(self, dataset: ReviewPaperDataset, transform=None, target_transform=None):
+
+    def __init__(
+        self, dataset: ReviewPaperDataset, transform=None, target_transform=None
+    ):
         self.data = dataset
 
         self.transform = transform
@@ -168,7 +189,7 @@ class ReviewScorePredictionDataset(Dataset):
 
         return sample, np.float32(oscore)
 
-    def to_dict(self, idxs:list=None):
+    def to_dict(self, idxs: list = None):
         entries = list(range(len(self))) if idxs is None else idxs
 
         sam0, _ = self[entries[0]]
@@ -184,20 +205,26 @@ class ReviewScorePredictionDataset(Dataset):
         return df
 
 
-def abstract_with_review_only(sep_token="<s>", truncate_paper=None, truncate_review=None):
-    assert truncate_paper is None or 0 <= truncate_paper, "None or int >= 0 expected for paper truncation"
-    assert truncate_review is None or 0 <= truncate_review, "None or int >= 0 expected for review truncation"
+def abstract_with_review_only(
+    sep_token="<s>", truncate_paper=None, truncate_review=None
+):
+    assert (
+        truncate_paper is None or 0 <= truncate_paper
+    ), "None or int >= 0 expected for paper truncation"
+    assert (
+        truncate_review is None or 0 <= truncate_review
+    ), "None or int >= 0 expected for review truncation"
 
     def get_abs(sample):
         if truncate_paper is None:
             abs = sample["abstract"]
         else:
-            abs = sample["abstract"][:min(len(sample["abstract"]), truncate_paper)]
+            abs = sample["abstract"][: min(len(sample["abstract"]), truncate_paper)]
 
         if truncate_review is None:
             rev = sample["review"]
         else:
-            rev = sample["review"][:min(len(sample["review"]), truncate_review)]
+            rev = sample["review"][: min(len(sample["review"]), truncate_review)]
 
         return {"txt": rev + sep_token + abs}
 
@@ -210,11 +237,15 @@ class PragmaticLabelingDataset(Dataset):
         Review sentece -> review score
     """
 
-    def __init__(self, dataset: PaperReviewDataset, transform=None, target_transform=None):
+    def __init__(
+        self, dataset: PaperReviewDataset, transform=None, target_transform=None
+    ):
         self.data = dataset
 
-        assert self.data.dataset_type in [DATASETS.ARR22, DATASETS.F1000], \
-            "Only ARR3Y and F1000 are supported for loading a pragmatic labeling dataset"
+        assert self.data.dataset_type in [
+            DATASETS.ARR22,
+            DATASETS.F1000,
+        ], "Only ARR3Y and F1000 are supported for loading a pragmatic labeling dataset"
 
         self.transform = transform
         self.target_transform = target_transform
@@ -223,20 +254,25 @@ class PragmaticLabelingDataset(Dataset):
 
     def _setup(self):
         if self.data.dataset_type == DATASETS.ARR22:
+
             def get_sentences_with_pragmatics(sample):
                 paper_id, paper_meta, paper, reviews = sample
 
                 out = {}
                 for review in reviews:
                     rout = []
-                    for f, l in [("paper_summary", "neutral"), ("summary_of_strengths", "strength"),
-                                 ("summary_of_weaknesses", "weakness"), ("comments,_suggestions_and_typos", "request")]:
+                    for f, l in [
+                        ("paper_summary", "neutral"),
+                        ("summary_of_strengths", "strength"),
+                        ("summary_of_weaknesses", "weakness"),
+                        ("comments,_suggestions_and_typos", "request"),
+                    ]:
                         txt = review["report"][f]
                         if txt is None:
                             continue
 
                         sent_spans = review["meta"]["sentences"][f]
-                        sentences = [txt[s[0]:s[1]].strip() for s in sent_spans]
+                        sentences = [txt[s[0] : s[1]].strip() for s in sent_spans]
 
                         # discard too short sentences (likely erroneous splitting and without content)
                         sentences = [s for s in sentences if len(s) > 5]
@@ -246,14 +282,26 @@ class PragmaticLabelingDataset(Dataset):
 
                 return out
 
-            paper_wise_sents = {sid: get_sentences_with_pragmatics(self.data[sid]) for sid in self.data.ids()}
+            paper_wise_sents = {
+                sid: get_sentences_with_pragmatics(self.data[sid])
+                for sid in self.data.ids()
+            }
             # discard too short sentences (bad splitting, noisy examples)
-            paper_wise_sents = {sid: {rid: [(i[0], i[1].strip().replace("\n", " ")) for i in s if len(i[1]) > 6]
-                                      for rid, s in sents.items()}
-                                for sid, sents in paper_wise_sents.items()}
+            paper_wise_sents = {
+                sid: {
+                    rid: [
+                        (i[0], i[1].strip().replace("\n", " "))
+                        for i in s
+                        if len(i[1]) > 6
+                    ]
+                    for rid, s in sents.items()
+                }
+                for sid, sents in paper_wise_sents.items()
+            }
         elif self.data.dataset_type == DATASETS.F1000:
-            self.annos = PaperReviewAnnotations(annotation_type=ANNOTATION_TYPES.PRAG,
-                                                dataset=self.data)
+            self.annos = PaperReviewAnnotations(
+                annotation_type=ANNOTATION_TYPES.PRAG, dataset=self.data
+            )
 
             def f1000rd_to_labelset(lbl):
                 if lbl == "Strength":
@@ -265,7 +313,9 @@ class PragmaticLabelingDataset(Dataset):
                 elif lbl in ["Structure", "Recap", "Other"]:
                     return "neutral"
                 else:
-                    raise ValueError(f"Passed label {lbl} is not part of the F1000RD label set!")
+                    raise ValueError(
+                        f"Passed label {lbl} is not part of the F1000RD label set!"
+                    )
 
             def get_sentences_with_pragmatics(sample):
                 anno = sample[1]
@@ -278,19 +328,31 @@ class PragmaticLabelingDataset(Dataset):
 
                     txt = review["report"]["main"]
                     sent_spans = review["meta"]["sentences"]["main"]
-                    sentences = [txt[s[0]:s[1]].strip() for s in sent_spans]
+                    sentences = [txt[s[0] : s[1]].strip() for s in sent_spans]
 
-                    out[review["rid"]] = [(f1000rd_to_labelset(a), sentences[int(i)]) for i, a in
-                                          anno[review["rid"]].items()]
+                    out[review["rid"]] = [
+                        (f1000rd_to_labelset(a), sentences[int(i)])
+                        for i, a in anno[review["rid"]].items()
+                    ]
 
                 return out
 
-            paper_wise_sents = {p[0][0]: get_sentences_with_pragmatics(p) for p in self.annos}
+            paper_wise_sents = {
+                p[0][0]: get_sentences_with_pragmatics(p) for p in self.annos
+            }
 
-        review_wise_sents = {f"{sid}%{k}": v for sid, sents in paper_wise_sents.items() for k, v in sents.items()}
+        review_wise_sents = {
+            f"{sid}%{k}": v
+            for sid, sents in paper_wise_sents.items()
+            for k, v in sents.items()
+        }
         covered_reviews = list(review_wise_sents.keys())
 
-        self.sentences = {f"{rid}_{i}": s for rid in covered_reviews for i, s in enumerate(review_wise_sents[rid])}
+        self.sentences = {
+            f"{rid}_{i}": s
+            for rid in covered_reviews
+            for i, s in enumerate(review_wise_sents[rid])
+        }
         self.sentence_ids = list(self.sentences.keys())
 
     def ids(self):
@@ -319,7 +381,7 @@ class PragmaticLabelingDataset(Dataset):
             "pid": paper_id,
             "rid": rid,
             "review": join_review_fields(review["report"]),
-            "sentence": sentence
+            "sentence": sentence,
         }
 
         if self.transform:
@@ -327,7 +389,7 @@ class PragmaticLabelingDataset(Dataset):
 
         return sample, label
 
-    def to_dict(self, idxs:list=None):
+    def to_dict(self, idxs: list = None):
         entries = list(range(len(self))) if idxs is None else idxs
 
         sam0, _ = self[entries[0]]
@@ -343,11 +405,16 @@ class PragmaticLabelingDataset(Dataset):
         return df
 
 
-def random_split_pragmatic_labeling_dataset(dataset: PragmaticLabelingDataset, splits: list, random_seed: int = None):
+def random_split_pragmatic_labeling_dataset(
+    dataset: PragmaticLabelingDataset, splits: list, random_seed: int = None
+):
     ids = dataset.ids()
 
     shuffled_ids = sklearn.utils.shuffle(ids, random_state=random_seed)
-    split_idx = [list(idx) for idx in paperwise_stratified_split(shuffled_ids, splits, None, random_seed)]
+    split_idx = [
+        list(idx)
+        for idx in paperwise_stratified_split(shuffled_ids, splits, None, random_seed)
+    ]
     split_ids = [list(np.array(ids)[idx]) for idx in split_idx]
 
     return split_idx, split_ids
@@ -363,9 +430,7 @@ def review_sentence_no_context():
 def get_class_map_pragmatics():
     labels = ["strength", "weakness", "request", "neutral"]
 
-    return {
-        l: i for i, l in enumerate(labels)
-    }
+    return {l: i for i, l in enumerate(labels)}
 
 
 class SkimmingDataset(Dataset):
@@ -374,12 +439,15 @@ class SkimmingDataset(Dataset):
         For each paper paragraph, determine whether it was referenced in a review
     """
 
-    def __init__(self, dataset: PaperReviewDataset,
-                 transform=None,
-                 target_transform=None,
-                 selected_types=None,
-                 sampling:str="random",
-                 sample_size:int=5):
+    def __init__(
+        self,
+        dataset: PaperReviewDataset,
+        transform=None,
+        target_transform=None,
+        selected_types=None,
+        sampling: str = "random",
+        sample_size: int = 5,
+    ):
         self.data = dataset
 
         self.transform = transform
@@ -397,7 +465,12 @@ class SkimmingDataset(Dataset):
     @classmethod
     def _get_linked_paper_nodes(cls, el_sample):
         paper_data, elinks = el_sample
-        paper_id, paper_meta, paper, reviews, = paper_data
+        (
+            paper_id,
+            paper_meta,
+            paper,
+            reviews,
+        ) = paper_data
 
         res = []
         for rid in elinks:
@@ -411,24 +484,32 @@ class SkimmingDataset(Dataset):
 
         return res, paper
 
-    def _sample(self, positive, negative, doc) -> Tuple[List[List[Node]], List[List[Node]], List[str]]:
+    def _sample(
+        self, positive, negative, doc
+    ) -> Tuple[List[List[Node]], List[List[Node]], List[str]]:
         # we cannot deal with no negatives or positives -- we always need both in the mix
         if len(positive) == 0 or len(negative) == 0:
             return [], [], []
 
         if self.sampling == "random":
-            negative = [n for n in negative if len(n.content) > 10] # quality assure paragraphs
+            negative = [
+                n for n in negative if len(n.content) > 10
+            ]  # quality assure paragraphs
             paras = positive + negative
 
             positive_sampled, negative_sampled, sampled_ids = [], [], []
             for n in positive:
                 # make random choices until you include at least one negative
                 while True:
-                    random_paragraphs = random.choices([p for p in paras if p != n], k=self.sample_size-1)
+                    random_paragraphs = random.choices(
+                        [p for p in paras if p != n], k=self.sample_size - 1
+                    )
                     if len(set(random_paragraphs).intersection(set(negative))) > 0:
                         break
 
-                positive_sampled += [[n] + [p for p in random_paragraphs if p in positive]]
+                positive_sampled += [
+                    [n] + [p for p in random_paragraphs if p in positive]
+                ]
                 negative_sampled += [[p for p in random_paragraphs if p in negative]]
                 sampled_ids += [n.ix]
 
@@ -437,10 +518,14 @@ class SkimmingDataset(Dataset):
 
             positive_sampled, negative_sampled, sampled_ids = [], [], []
             for n in positive:
-                close_paragraphs = list(sorted(paras, key=lambda x: doc.tree_distance(n, x, Etype.NEXT)))
+                close_paragraphs = list(
+                    sorted(paras, key=lambda x: doc.tree_distance(n, x, Etype.NEXT))
+                )
                 close_paragraphs = [p for p in close_paragraphs if p != n]
 
-                top_close = close_paragraphs[:min(len(close_paragraphs), self.sample_size-1)]
+                top_close = close_paragraphs[
+                    : min(len(close_paragraphs), self.sample_size - 1)
+                ]
 
                 positive_sampled += [[n] + [p for p in top_close if p in positive]]
                 negative_sampled += [[p for p in top_close if p in negative]]
@@ -457,7 +542,9 @@ class SkimmingDataset(Dataset):
             sampled_ids = ["all"]
 
         else:
-            raise NotImplementedError(f"Given sampling strategy {self.sampling} does not exist.")
+            raise NotImplementedError(
+                f"Given sampling strategy {self.sampling} does not exist."
+            )
 
         return positive_sampled, negative_sampled, sampled_ids
 
@@ -467,7 +554,10 @@ class SkimmingDataset(Dataset):
 
         # for each anchor, search for the matching paragraph node and add this to the positives
         pos = []
-        for a, t in filter(lambda x: self.selected_types is None or x[1] in self.selected_types, anchors):
+        for a, t in filter(
+            lambda x: self.selected_types is None or x[1] in self.selected_types,
+            anchors,
+        ):
             n = pdoc.get_node_by_ix(a)
             if type(n) == SpanNode:
                 n = n.src_node
@@ -487,10 +577,13 @@ class SkimmingDataset(Dataset):
         return self._sample(pos, neg, pdoc)
 
     def _setup(self):
-        self.elink_annos = PaperReviewAnnotations(annotation_type=ANNOTATION_TYPES.ELINKS,
-                                                  dataset=self.data)
+        self.elink_annos = PaperReviewAnnotations(
+            annotation_type=ANNOTATION_TYPES.ELINKS, dataset=self.data
+        )
 
-        elinks_per_paper = {p[0][0]: self._get_linked_paper_nodes(p) for p in self.elink_annos}
+        elinks_per_paper = {
+            p[0][0]: self._get_linked_paper_nodes(p) for p in self.elink_annos
+        }
 
         batches = {}
         for pid, sample in elinks_per_paper.items():
@@ -528,7 +621,12 @@ class SkimmingDataset(Dataset):
             positives = [self.transform(p) for p in positives]
             negatives = [self.transform(n) for n in negatives]
 
-        return positives, negatives, [plabel for p in positives], [nlabel for n in negatives]
+        return (
+            positives,
+            negatives,
+            [plabel for p in positives],
+            [nlabel for n in negatives],
+        )
 
     def to_dict(self, idxs: list = None):
         entries = list(range(len(self))) if idxs is None else idxs
@@ -536,8 +634,7 @@ class SkimmingDataset(Dataset):
         pos0, neg0, pos0_lbls, neg0_lbls = self[entries[0]]
         fields = list(pos0[0].keys())
 
-        df = {"positives": [],
-              "negatives": []}
+        df = {"positives": [], "negatives": []}
 
         for i in entries:
             positives, negatives, pos_labels, neg_labels = self[i]
@@ -572,12 +669,17 @@ def get_paragraph_text(with_struct=False, with_meta=False):
                 edge = edges.pop()
                 depth += 1
 
-                if edge.src_node.ntype in [NTYPE_HEADING, NTYPE_ABSTRACT] and parent is None:
+                if (
+                    edge.src_node.ntype in [NTYPE_HEADING, NTYPE_ABSTRACT]
+                    and parent is None
+                ):
                     parent = edge.src_node
                 elif edge.src_node.ntype in [NTYPE_TITLE]:
                     title = edge.src_node
 
-                edges += [e for e in edge.src_node.incoming_edges if e.etype == Etype.PARENT]
+                edges += [
+                    e for e in edge.src_node.incoming_edges if e.etype == Etype.PARENT
+                ]
 
                 if title is not None and parent is not None:
                     break
@@ -585,12 +687,25 @@ def get_paragraph_text(with_struct=False, with_meta=False):
             if with_meta:
                 res = [str(depth)] + res if depth > 0 else res
 
-            res = ([(parent.meta["section"] if parent.meta and "section" in parent.meta else "") + "; " + parent.content] + res) if parent is not None else res
+            res = (
+                (
+                    [
+                        (
+                            parent.meta["section"]
+                            if parent.meta and "section" in parent.meta
+                            else ""
+                        )
+                        + "; "
+                        + parent.content
+                    ]
+                    + res
+                )
+                if parent is not None
+                else res
+            )
             res = ([title.content] + res) if title is not None else res
 
-        return {
-            "txt": "<s>".join(res)
-        }
+        return {"txt": "<s>".join(res)}
 
     return get_text
 
@@ -598,6 +713,4 @@ def get_paragraph_text(with_struct=False, with_meta=False):
 def get_class_map_skimming():
     labels = ["negative", "positive"]
 
-    return {
-        l: i for i, l in enumerate(labels)
-    }
+    return {l: i for i, l in enumerate(labels)}

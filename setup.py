@@ -1,10 +1,11 @@
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
+
 setup(
-    name='nlpeer',
-    version='0.1',
+    name="nlpeer",
+    version="0.1",
     author="Ubiquitous Knowledge Processing Lab",
     author_email="nils.dycke@tu-darmstadt.de",
     description="Code utilities for loading NLPeer data and for running experiments.",
     long_description="README.md",
-    packages=find_packages()
+    packages=find_packages(),
 )
